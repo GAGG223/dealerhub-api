@@ -1,0 +1,439 @@
+// ============================================================================
+// DealerHub API - Schema Prisma
+// Plataforma SaaS multi-tenant para gestão de concessionárias.
+// Estratégia multi-tenancy: shared database + shared schema, com dealershipId
+// em toda entidade tenant-scoped. Isolamento garantido na camada de aplicação.
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ----------------------------------------------------------------------------
+// ENUMS
+// ----------------------------------------------------------------------------
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  MANAGER
+  SELLER
+}
+
+enum VehicleStatus {
+  AVAILABLE
+  RESERVED
+  SOLD
+  MAINTENANCE
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  NEGOTIATING
+  CONVERTED
+  LOST
+}
+
+enum LeadSource {
+  WEBSITE
+  WHATSAPP
+  INSTAGRAM
+  FACEBOOK
+  PHONE
+  STORE
+  OTHER
+}
+
+enum ProposalStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+enum SaleStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  FINANCING
+  TRADE_IN
+  PIX
+  OTHER
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum AuditAction {
+  USER_CREATED
+  USER_UPDATED
+  USER_DELETED
+  DEALERSHIP_CREATED
+  DEALERSHIP_UPDATED
+  DEALERSHIP_DEACTIVATED
+  VEHICLE_CREATED
+  VEHICLE_UPDATED
+  VEHICLE_DELETED
+  VEHICLE_STATUS_CHANGED
+  VEHICLE_RESERVED
+  VEHICLE_RELEASED
+  CUSTOMER_CREATED
+  CUSTOMER_UPDATED
+  CUSTOMER_DELETED
+  LEAD_CREATED
+  LEAD_UPDATED
+  PROPOSAL_CREATED
+  PROPOSAL_UPDATED
+  SALE_CREATED
+  SALE_COMPLETED
+  SALE_CANCELLED
+  PAYMENT_CREATED
+  PAYMENT_UPDATED
+}
+
+// ----------------------------------------------------------------------------
+// TENANT
+// ----------------------------------------------------------------------------
+
+model Dealership {
+  id        String   @id @default(uuid())
+  name      String
+  legalName String
+  document  String   @unique // CNPJ
+  email     String
+  phone     String
+  address   String?
+  city      String?
+  state     String?
+  zipCode   String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users     User[]
+  customers Customer[]
+  vehicles  Vehicle[]
+  leads     Lead[]
+  proposals Proposal[]
+  sales     Sale[]
+  payments  Payment[]
+  tradeIns  TradeIn[]
+  auditLogs AuditLog[]
+
+  @@index([active])
+  @@map("dealerships")
+}
+
+// ----------------------------------------------------------------------------
+// USUÁRIOS
+// ----------------------------------------------------------------------------
+
+model User {
+  id           String    @id @default(uuid())
+  dealershipId String? // null apenas para SUPER_ADMIN (plataforma)
+  name         String
+  email        String    @unique
+  passwordHash String
+  role         Role      @default(SELLER)
+  phone        String?
+  position     String? // cargo (ex.: "Vendedor Sênior")
+  active       Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  dealership Dealership? @relation(fields: [dealershipId], references: [id], onDelete: Cascade)
+
+  refreshTokens RefreshToken[]
+  leads         Lead[]
+  proposals     Proposal[]
+  sales         Sale[]
+  customers     Customer[]
+  auditLogs     AuditLog[]
+
+  @@index([dealershipId])
+  @@index([dealershipId, role])
+  @@index([dealershipId, active])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// ----------------------------------------------------------------------------
+// CLIENTES
+// ----------------------------------------------------------------------------
+
+model Customer {
+  id           String   @id @default(uuid())
+  dealershipId String
+  sellerId     String? // vendedor responsável (User com role SELLER)
+  name         String
+  email        String?
+  phone        String?
+  cpf          String?
+  city         String?
+  state        String?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  dealership Dealership @relation(fields: [dealershipId], references: [id], onDelete: Cascade)
+  seller     User?      @relation(fields: [sellerId], references: [id], onDelete: SetNull)
+
+  leads     Lead[]
+  proposals Proposal[]
+  sales     Sale[]
+
+  @@unique([dealershipId, cpf])
+  @@index([dealershipId])
+  @@index([dealershipId, createdAt])
+  @@index([dealershipId, sellerId])
+  @@map("customers")
+}
+
+// ----------------------------------------------------------------------------
+// VEÍCULOS + ESTOQUE
+// ----------------------------------------------------------------------------
+
+model Vehicle {
+  id           String        @id @default(uuid())
+  dealershipId String
+  brand        String
+  model        String
+  version      String?
+  year         Int
+  mileage      Int           @default(0)
+  price        Decimal       @db.Decimal(12, 2)
+  costPrice    Decimal?      @db.Decimal(12, 2)
+  transmission String?
+  fuel         String?
+  bodyType     String?
+  engine       String?
+  horsepower   Int?
+  color        String?
+  description  String?
+  status       VehicleStatus @default(AVAILABLE)
+  location     String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  dealership Dealership @relation(fields: [dealershipId], references: [id], onDelete: Cascade)
+
+  images    VehicleImage[]
+  leads     Lead[]
+  proposals Proposal[]
+  sales     Sale[]
+
+  @@index([dealershipId])
+  @@index([dealershipId, status])
+  @@index([dealershipId, brand])
+  @@index([dealershipId, price])
+  @@index([dealershipId, createdAt])
+  @@map("vehicles")
+}
+
+model VehicleImage {
+  id        String   @id @default(uuid())
+  vehicleId String
+  url       String
+  alt       String?
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId])
+  @@map("vehicle_images")
+}
+
+// ----------------------------------------------------------------------------
+// LEADS (CRM)
+// ----------------------------------------------------------------------------
+
+model Lead {
+  id           String     @id @default(uuid())
+  dealershipId String
+  customerId   String
+  vehicleId    String?
+  sellerId     String?
+  source       LeadSource @default(OTHER)
+  status       LeadStatus @default(NEW)
+  notes        String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  dealership Dealership @relation(fields: [dealershipId], references: [id], onDelete: Cascade)
+  customer   Customer   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  vehicle    Vehicle?   @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  seller     User?      @relation(fields: [sellerId], references: [id], onDelete: SetNull)
+
+  @@index([dealershipId])
+  @@index([dealershipId, status])
+  @@index([dealershipId, sellerId])
+  @@index([dealershipId, createdAt])
+  @@map("leads")
+}
+
+// ----------------------------------------------------------------------------
+// PROPOSTAS
+// ----------------------------------------------------------------------------
+
+model Proposal {
+  id              String         @id @default(uuid())
+  dealershipId    String
+  customerId      String
+  vehicleId       String
+  sellerId        String?
+  proposedPrice   Decimal        @db.Decimal(12, 2)
+  downPayment     Decimal?       @db.Decimal(12, 2)
+  financingAmount Decimal?       @db.Decimal(12, 2)
+  installments    Int?
+  interestRate    Decimal?       @db.Decimal(5, 2)
+  status          ProposalStatus @default(DRAFT)
+  notes           String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  dealership Dealership @relation(fields: [dealershipId], references: [id], onDelete: Cascade)
+  customer   Customer   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  vehicle    Vehicle    @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  seller     User?      @relation(fields: [sellerId], references: [id], onDelete: SetNull)
+
+  sale Sale?
+
+  @@index([dealershipId])
+  @@index([dealershipId, status])
+  @@index([dealershipId, createdAt])
+  @@map("proposals")
+}
+
+// ----------------------------------------------------------------------------
+// VENDAS
+// ----------------------------------------------------------------------------
+
+model Sale {
+  id            String        @id @default(uuid())
+  dealershipId  String
+  customerId    String
+  sellerId      String?
+  vehicleId     String
+  proposalId    String?       @unique
+  salePrice     Decimal       @db.Decimal(12, 2)
+  paymentMethod PaymentMethod @default(CASH)
+  status        SaleStatus    @default(PENDING)
+  soldAt        DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  dealership Dealership @relation(fields: [dealershipId], references: [id], onDelete: Cascade)
+  customer   Customer   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  vehicle    Vehicle    @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  seller     User?      @relation(fields: [sellerId], references: [id], onDelete: SetNull)
+  proposal   Proposal?  @relation(fields: [proposalId], references: [id], onDelete: SetNull)
+
+  payments Payment[]
+  tradeIn  TradeIn?
+
+  @@index([dealershipId])
+  @@index([dealershipId, status])
+  @@index([dealershipId, sellerId])
+  @@index([dealershipId, soldAt])
+  @@index([dealershipId, createdAt])
+  @@map("sales")
+}
+
+// ----------------------------------------------------------------------------
+// PAGAMENTOS
+// ----------------------------------------------------------------------------
+
+model Payment {
+  id           String        @id @default(uuid())
+  dealershipId String
+  saleId       String
+  amount       Decimal       @db.Decimal(12, 2)
+  method       PaymentMethod @default(CASH)
+  status       PaymentStatus @default(PENDING)
+  paidAt       DateTime?
+  createdAt    DateTime      @default(now())
+
+  dealership Dealership @relation(fields: [dealershipId], references: [id], onDelete: Cascade)
+  sale       Sale       @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([dealershipId])
+  @@index([saleId])
+  @@map("payments")
+}
+
+// ----------------------------------------------------------------------------
+// TROCA (TRADE-IN)
+// ----------------------------------------------------------------------------
+
+model TradeIn {
+  id             String   @id @default(uuid())
+  dealershipId   String
+  saleId         String   @unique
+  brand          String
+  model          String
+  year           Int
+  mileage        Int      @default(0)
+  estimatedValue Decimal  @db.Decimal(12, 2)
+  notes          String?
+  createdAt      DateTime @default(now())
+
+  dealership Dealership @relation(fields: [dealershipId], references: [id], onDelete: Cascade)
+  sale       Sale       @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([dealershipId])
+  @@map("trade_ins")
+}
+
+// ----------------------------------------------------------------------------
+// AUDITORIA
+// ----------------------------------------------------------------------------
+
+model AuditLog {
+  id           String      @id @default(uuid())
+  dealershipId String?
+  userId       String?
+  action       AuditAction
+  entity       String
+  entityId     String?
+  metadata     Json?
+  ipAddress    String?
+  createdAt    DateTime    @default(now())
+
+  dealership Dealership? @relation(fields: [dealershipId], references: [id], onDelete: SetNull)
+  user       User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([dealershipId])
+  @@index([dealershipId, createdAt])
+  @@index([dealershipId, entity])
+  @@map("audit_logs")
+}
