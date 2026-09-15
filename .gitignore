@@ -30,3 +30,8 @@ Thumbs.db
 
 # Misc
 *.tsbuildinfo
+
+# Vídeos de gravação (demonstração)
+*.mp4
+*.mov
+*.mkv
