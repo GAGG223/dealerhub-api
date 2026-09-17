@@ -135,10 +135,10 @@ Sobe API + PostgreSQL, roda as migrations e inicia a API:
 docker compose up -d
 ```
 
-A API fica em `http://localhost:3333`. Para popular com dados de exemplo:
+A API fica em `http://localhost:3333`. Para popular com dados de exemplo (o seed já vem compilado na imagem, sem depender de ferramentas de desenvolvimento):
 
 ```bash
-docker compose exec api npm run seed
+docker compose exec api npm run seed:prod
 ```
 
 ### Opção B — Local
@@ -180,7 +180,7 @@ Documentação interativa em:
 http://localhost:3333/api/docs
 ```
 
-O JSON OpenAPI está em `/api/docs.json`. Use o botão **Authorize** para informar o Bearer token obtido no login.
+O JSON OpenAPI está em `/api/docs.json`. Use o botão **Authorize** para informar o Bearer token obtido no login. A interface usa um tema visual customizado com a identidade do DealerHub.
 
 ## Variáveis de ambiente
 

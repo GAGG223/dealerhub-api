@@ -19,9 +19,11 @@ COPY prisma ./prisma
 RUN npx prisma generate
 
 # Copia o restante do código e compila TypeScript -> dist
-COPY tsconfig.json tsconfig.build.json ./
+COPY tsconfig.json tsconfig.build.json tsconfig.seed.json ./
 COPY src ./src
 RUN npm run build
+# Compila também o seed (dist/prisma/seed.js) para popular sem depender de tsx
+RUN npm run build:seed
 
 # ---- Stage 2: runtime ----
 FROM node:20-alpine AS runner
